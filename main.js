@@ -1,4 +1,4 @@
-// main.js (module) - vollständige, korrigierte Version
+// main.js (module) - AI-updated: enemy collision, damage, attack animation, movement speed boost
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
@@ -36,6 +36,14 @@ const state = {
   kills: 0
 };
 
+// --- Gameplay radii & tuning ---
+const PLAYER_RADIUS = 0.6;
+const ENEMY_RADIUS = 0.8;
+const ENEMY_MIN_DISTANCE_BUFFER = 0.15; // extra buffer so they don't touch exactly
+const PLAYER_ATTACK_DAMAGE = 10; // damage per enemy attack
+const PLAYER_MOVE_SPEED = 25.0; // increased from 15
+const PLAYER_SPRINT_SPEED = 45.0; // increased from 30
+
 // Globals
 let scene, camera, renderer, controls;
 let playerObj, terrainMesh, prevTime = performance.now(), raycasterDown, gunGroup, muzzleFlash;
@@ -58,7 +66,7 @@ function enableMouseDragFallback() {
 
 function getTerrainHeight(x, z) {
   return (Math.sin(x * 0.01) + Math.cos(z * 0.01)) * 10 +
-  (Math.sin(x * 0.05) + Math.cos(z * 0.05)) * 2;
+         (Math.sin(x * 0.05) + Math.cos(z * 0.05)) * 2;
 }
 
 // --- Try lock: request pointer lock on the renderer canvas (reliable) ---
@@ -201,7 +209,7 @@ function init() {
     if (e.code === 'Enter' && startScreen && startScreen.style.display !== 'none') tryLock();
   });
 
-    raycasterDown = new THREE.Raycaster();
+  raycasterDown = new THREE.Raycaster();
 }
 
 // --- TERRAIN ---
@@ -256,7 +264,7 @@ function populateWorld() {
   spawnEnemies();
 }
 
-// --- ENEMY SPAWN (wie original) ---
+// --- ENEMY SPAWN (with attack data) ---
 function spawnEnemies() {
   for (let i = 0; i < 20; i++) {
     const x = (Math.random() - 0.5) * 800;
@@ -294,11 +302,21 @@ function spawnEnemies() {
 
     enemyGroup.position.set(x, y, z);
     scene.add(enemyGroup);
-    state.enemies.push({ mesh: enemyGroup, speed: 3 + Math.random() * 2, hp: 100 });
+
+    // enemy record includes attack cooldown and radius
+    state.enemies.push({
+      mesh: enemyGroup,
+      speed: 3 + Math.random() * 2,
+      hp: 100,
+      attackCooldown: 0,
+      attackRate: 1.0 + Math.random() * 0.8, // seconds between attacks
+      radius: ENEMY_RADIUS,
+      bodyMesh: body // convenience for animation/color
+    });
   }
 }
 
-// --- PLAYER & GUN (wie original) ---
+// --- PLAYER & GUN ---
 function createPlayer() {
   playerObj = new THREE.Group();
   scene.add(playerObj);
@@ -316,6 +334,10 @@ function createPlayer() {
   const hair = new THREE.Mesh(hairGeo, hairMat); hair.position.y = 1.9;
 
   playerObj.add(mesh); playerObj.add(head); playerObj.add(hair);
+
+  // store radius for collision checks
+  playerObj.userData = playerObj.userData || {};
+  playerObj.userData.radius = PLAYER_RADIUS;
 }
 
 function createGun() {
@@ -371,7 +393,7 @@ function updatePlayerMovement(delta) {
   state.direction.x = Number(state.move.right) - Number(state.move.left);
   if (state.direction.lengthSq() > 0) state.direction.normalize();
 
-  const speed = state.sprint ? 30.0 : 15.0;
+  const speed = state.sprint ? PLAYER_SPRINT_SPEED : PLAYER_MOVE_SPEED;
 
   if (state.move.fwd || state.move.bwd) state.velocity.z -= state.direction.z * speed * delta;
   if (state.move.left || state.move.right) state.velocity.x -= state.direction.x * speed * delta;
@@ -433,24 +455,85 @@ function updateHpBar() {
     const pct = Math.max(0, Math.min(1, state.hp / state.maxHp));
     el.style.width = `${pct * 100}%`;
   }
+  // visual damage flash if low
+  if (hitmarker) {
+    // brief red flash when HP dropped (handled on damage)
+  }
 }
 
 function updateAmmoUI() {
   if (ammoCounter) ammoCounter.textContent = `${state.ammo} / ${state.reserveAmmo}`;
 }
 
-// --- ENEMY UPDATE (simple follow & simple death) ---
+// --- ENEMY UPDATE: follow, separation, attack, animation ---
 function updateEnemies(delta) {
+  const playerPos = playerObj.position.clone();
+
+  // simple separation between enemies (avoid stacking)
+  for (let i = 0; i < state.enemies.length; i++) {
+    const a = state.enemies[i];
+    for (let j = i + 1; j < state.enemies.length; j++) {
+      const b = state.enemies[j];
+      const diff = new THREE.Vector3().subVectors(a.mesh.position, b.mesh.position);
+      const dist = diff.length();
+      const min = (a.radius || ENEMY_RADIUS) + (b.radius || ENEMY_RADIUS) + 0.05;
+      if (dist > 0 && dist < min) {
+        const push = diff.normalize().multiplyScalar((min - dist) * 0.5);
+        a.mesh.position.add(push);
+        b.mesh.position.sub(push);
+      }
+    }
+  }
+
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const enemy = state.enemies[i];
     if (!enemy.mesh) continue;
-    const dir = new THREE.Vector3().subVectors(playerObj.position, enemy.mesh.position);
+
+    // update attack cooldown
+    enemy.attackCooldown = Math.max(0, (enemy.attackCooldown || 0) - delta);
+
+    // direction to player
+    const dir = new THREE.Vector3().subVectors(playerPos, enemy.mesh.position);
     const dist = dir.length();
-    if (dist > 0.1) {
+    const minDist = (enemy.radius || ENEMY_RADIUS) + PLAYER_RADIUS + ENEMY_MIN_DISTANCE_BUFFER;
+
+    if (dist > minDist) {
+      // move toward player
       dir.normalize();
       enemy.mesh.position.addScaledVector(dir, enemy.speed * delta);
+    } else {
+      // too close -> resolve penetration by placing at min distance
+      if (dist > 0.001) {
+        dir.normalize();
+        enemy.mesh.position.copy(playerPos).addScaledVector(dir, -minDist);
+      }
+
+      // attack if cooldown expired
+      if (enemy.attackCooldown <= 0) {
+        // apply damage to player
+        applyDamageToPlayer(PLAYER_ATTACK_DAMAGE);
+        enemy.attackCooldown = enemy.attackRate;
+
+        // visual attack animation: quick scale pulse and tint
+        if (enemy.bodyMesh) {
+          // scale pulse
+          const origScale = enemy.mesh.scale.clone();
+          enemy.mesh.scale.set(origScale.x * 1.25, origScale.y * 1.25, origScale.z * 1.25);
+          setTimeout(() => {
+            if (enemy.mesh) enemy.mesh.scale.copy(origScale);
+          }, 180);
+          // brief color flash (safe if material exists)
+          if (enemy.bodyMesh.material && enemy.bodyMesh.material.color) {
+            const mat = enemy.bodyMesh.material;
+            const origColor = mat.color.getHex();
+            mat.color.setHex(0xff4444);
+            setTimeout(() => { if (mat) mat.color.setHex(origColor); }, 200);
+          }
+        }
+      }
     }
-    // simple "death" if hp <= 0
+
+    // cleanup dead enemies
     if (enemy.hp <= 0) {
       scene.remove(enemy.mesh);
       state.enemies.splice(i, 1);
@@ -467,7 +550,26 @@ function updateEnemies(delta) {
   }
 }
 
-// --- SHOOT / RELOAD (simple) ---
+function applyDamageToPlayer(amount) {
+  state.hp = Math.max(0, state.hp - amount);
+  updateHpBar();
+  // show red hit flash
+  if (hitmarker) {
+    hitmarker.style.opacity = '1';
+    setTimeout(() => { if (hitmarker) hitmarker.style.opacity = '0'; }, 120);
+  }
+  logOnScreen(`Spieler erhielt ${amount} Schaden. HP=${state.hp}`);
+  if (state.hp <= 0) {
+    // simple death: respawn after short delay
+    logOnScreen('Spieler gestorben - Respawn in 2s');
+    setTimeout(() => {
+      resetGame();
+      logOnScreen('Respawned');
+    }, 2000);
+  }
+}
+
+// --- SHOOT / RELOAD (improved ray origin so enemies inside player are hittable) ---
 function shoot() {
   const now = performance.now();
   if (now - state.lastShot < state.shootCooldown) return;
@@ -483,18 +585,35 @@ function shoot() {
     setTimeout(() => { if (muzzleFlash) muzzleFlash.material.opacity = 0; }, 80);
   }
 
-  // raycast forward and damage first enemy hit (simple)
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const ray = new THREE.Raycaster(camera.position, dir);
-  const hits = ray.intersectObjects(state.enemies.map(e => e.mesh), true);
+  // raycast forward from slightly in front of camera to avoid intersecting internal geometry
+  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+  const origin = camera.position.clone().add(dir.clone().multiplyScalar(0.5)); // start a bit in front
+  const ray = new THREE.Raycaster(origin, dir);
+
+  // build list of enemy root objects
+  const objs = state.enemies.map(e => e.mesh);
+  const hits = ray.intersectObjects(objs, true);
   if (hits.length) {
-    // find enemy owner and reduce hp
-    const hitMesh = hits[0].object;
-    const owner = state.enemies.find(e => e.mesh === hitMesh || e.mesh.children.includes(hitMesh));
+    // find enemy owner by walking up to root group
+    const hit = hits[0];
+    let root = hit.object;
+    while (root && !objs.includes(root)) {
+      root = root.parent;
+    }
+    const owner = state.enemies.find(e => e.mesh === root);
     if (owner) {
       owner.hp -= 50;
       // show hitmarker
       if (hitmarker) { hitmarker.style.opacity = '1'; setTimeout(() => { hitmarker.style.opacity = '0'; }, 100); }
+      // small hit animation on enemy
+      if (owner.bodyMesh) {
+        const mat = owner.bodyMesh.material;
+        if (mat && mat.color) {
+          const orig = mat.color.getHex();
+          mat.color.setHex(0xffff66);
+          setTimeout(() => { if (mat) mat.color.setHex(orig); }, 140);
+        }
+      }
     }
   }
 }
@@ -503,7 +622,6 @@ function reload() {
   if (state.reloading) return;
   if (state.ammo === state.maxAmmo || state.reserveAmmo <= 0) return;
   state.reloading = true;
-  // simulate reload time
   setTimeout(() => {
     const needed = state.maxAmmo - state.ammo;
     const taken = Math.min(needed, state.reserveAmmo);
