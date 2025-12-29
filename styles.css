@@ -1,0 +1,133 @@
+/* extrahiert aus original index.html */
+body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; }
+
+/* --- HUD / UI Design (Anime MMO Style) --- */
+#ui-layer {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+}
+
+/* Oben Links: Spieler Status */
+#player-status {
+    padding: 20px;
+    display: flex; gap: 10px; align-items: center;
+}
+.avatar-circle {
+    width: 60px; height: 60px; background: #fff; border-radius: 50%;
+    border: 3px solid #4deeea; box-shadow: 0 0 10px #4deeea;
+    background-image: linear-gradient(135deg, #fceabb 0%, #f8b500 100%);
+}
+.bars { display: flex; flex-direction: column; gap: 5px; width: 200px; }
+.bar-bg { background: rgba(0,0,0,0.5); height: 10px; border-radius: 5px; overflow: hidden; }
+.hp-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff6b6b, #ee5253); transition: width 0.3s; }
+.mp-bar { width: 80%; height: 100%; background: linear-gradient(90deg, #48dbfb, #0abde3); }
+
+/* Fadenkreuz */
+#crosshair {
+    position: absolute; top: 50%; left: 50%;
+    width: 30px; height: 30px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.crosshair-line {
+    position: absolute;
+    background: white;
+    box-shadow: 0 0 3px black;
+}
+.crosshair-h { width: 20px; height: 2px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.crosshair-v { width: 2px; height: 20px; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.crosshair-dot {
+    width: 4px; height: 4px; background: white; border-radius: 50%;
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    box-shadow: 0 0 4px black;
+}
+
+/* Munitions-Anzeige */
+#ammo-counter {
+    position: absolute; bottom: 80px; right: 40px;
+    background: rgba(0,0,0,0.8); color: white; padding: 15px 25px;
+    border-radius: 10px; font-size: 28px; font-weight: bold;
+    border: 2px solid #ff9f43;
+    text-shadow: 2px 2px 4px black;
+}
+.ammo-reload {
+    color: #ff6b6b;
+    animation: pulse 0.5s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.95); }
+}
+
+/* Hitmarker */
+#hitmarker {
+    position: absolute; top: 50%; left: 50%;
+    width: 40px; height: 40px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+.hitmarker-line {
+    position: absolute;
+    background: red;
+    box-shadow: 0 0 5px red;
+}
+.hit-tl { width: 15px; height: 3px; top: 5px; left: 5px; transform: rotate(-45deg); }
+.hit-tr { width: 15px; height: 3px; top: 5px; right: 5px; transform: rotate(45deg); }
+.hit-bl { width: 15px; height: 3px; bottom: 5px; left: 5px; transform: rotate(45deg); }
+.hit-br { width: 15px; height: 3px; bottom: 5px; right: 5px; transform: rotate(-45deg); }
+
+/* Interaktions-Prompt */
+#interaction-msg {
+    position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); color: white; padding: 10px 20px;
+    border-radius: 20px; display: none; font-weight: bold;
+    border: 1px solid #4deeea;
+}
+
+/* Start Screen */
+#start-screen {
+    position: absolute; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    color: white; pointer-events: auto; z-index: 9999; /* Ensure it's above the canvas */
+}
+h1 { font-size: 4rem; margin: 0; text-shadow: 0 0 20px #4deeea; color: #4deeea; font-style: italic; }
+button {
+    padding: 15px 40px; font-size: 1.2rem; background: #ff9f43; color: white;
+    border: none; border-radius: 30px; cursor: pointer; margin-top: 20px;
+    font-weight: bold; transition: transform 0.2s;
+}
+button:hover { transform: scale(1.1); background: #ffaf40; }
+
+/* Mini-Menu unten rechts */
+#menu-bar {
+    padding: 20px; align-self: flex-end; display: flex; gap: 10px;
+}
+.menu-icon {
+    width: 40px; height: 40px; background: rgba(0,0,0,0.5); border-radius: 8px;
+    border: 1px solid #aaa; color: #fff; display: flex; justify-content: center; align-items: center;
+    font-size: 12px; pointer-events: auto; cursor: pointer;
+}
+.menu-icon:hover { background: rgba(0,0,0,0.8); border-color: #4deeea; }
+
+/* Kill Feed */
+#kill-feed {
+    position: absolute; top: 100px; right: 20px;
+    display: flex; flex-direction: column; gap: 5px;
+    max-width: 300px;
+}
+.kill-msg {
+    background: rgba(0,0,0,0.7); color: #4deeea; padding: 8px 15px;
+    border-radius: 5px; font-size: 14px;
+    animation: slideIn 0.3s, fadeOut 0.5s 2.5s forwards;
+}
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeOut {
+    to { opacity: 0; transform: translateX(100%); }
+}
